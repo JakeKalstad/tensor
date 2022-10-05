@@ -16,6 +16,7 @@ import (
 
 	flatbuffers "github.com/google/flatbuffers/go"
 	"github.com/pkg/errors"
+	"google.golang.org/protobuf/proto"
 	"gorgonia.org/tensor/internal/serialization/fb"
 	"gorgonia.org/tensor/internal/serialization/pb"
 )
@@ -826,28 +827,19 @@ func (t *Dense) PBEncode() ([]byte, error) {
 		toSerialize.Strides[i] = int32(v)
 	}
 
-	switch {
-	case t.o.IsRowMajor() && t.o.IsContiguous():
-		toSerialize.O = pb.RowMajorContiguous
-	case t.o.IsRowMajor() && !t.o.IsContiguous():
-		toSerialize.O = pb.RowMajorNonContiguous
-	case t.o.IsColMajor() && t.o.IsContiguous():
-		toSerialize.O = pb.ColMajorContiguous
-	case t.o.IsColMajor() && !t.o.IsContiguous():
-		toSerialize.O = pb.ColMajorNonContiguous
-	}
 	toSerialize.T = pb.Triangle(t.Δ)
 	toSerialize.Type = t.t.String()
 	data := t.byteSlice()
 	toSerialize.Data = make([]byte, len(data))
 	copy(toSerialize.Data, data)
-	return toSerialize.Marshal()
+	
+	return proto.Marshal(&toSerialize)
 }
 
 // PBDecode unmarshalls a protobuf byteslice into a *Dense.
 func (t *Dense) PBDecode(buf []byte) error {
-	var toSerialize pb.Dense
-	if err := toSerialize.Unmarshal(buf); err != nil {
+	toSerialize := pb.Dense{}
+	if err := proto.Unmarshal(buf, &toSerialize); err != nil {
 		return err
 	}
 	t.shape = make(Shape, len(toSerialize.Shape))
@@ -858,16 +850,7 @@ func (t *Dense) PBDecode(buf []byte) error {
 	for i, v := range toSerialize.Strides {
 		t.strides[i] = int(v)
 	}
-
-	switch toSerialize.O {
-	case pb.RowMajorContiguous:
-	case pb.RowMajorNonContiguous:
-		t.o = MakeDataOrder(NonContiguous)
-	case pb.ColMajorContiguous:
-		t.o = MakeDataOrder(ColMajor)
-	case pb.ColMajorNonContiguous:
-		t.o = MakeDataOrder(ColMajor, NonContiguous)
-	}
+ 
 	t.Δ = Triangle(toSerialize.T)
 	typ := string(toSerialize.Type)
 	for _, dt := range allTypes.set {
